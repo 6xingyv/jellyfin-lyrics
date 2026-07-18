@@ -72,7 +72,9 @@ public partial class TtmlLyricParser : ILyricParser
             var artistIds = GetArtistIds(p);
             var key = GetAttributeValue(p, "key");
             var syllables = ParseSyllablesFromChildren(p.Nodes());
-            var text = syllables.Count > 0 ? string.Concat(syllables.Select(i => i.Text)).Trim() : ExtractLineText(p).Trim();
+            var text = syllables.Count > 0
+                ? string.Concat(syllables.Select(i => i.Text)).Trim()
+                : NormalizeXmlTextContent(ExtractLineText(p));
             if (text.Length == 0)
             {
                 continue;
@@ -112,7 +114,7 @@ public partial class TtmlLyricParser : ILyricParser
                 var backgroundSyllables = ParseSyllablesFromChildren(backgroundSpan.Nodes());
                 var backgroundText = backgroundSyllables.Count > 0
                     ? string.Concat(backgroundSyllables.Select(i => i.Text)).Trim()
-                    : ExtractLineText(backgroundSpan).Trim();
+                    : NormalizeXmlTextContent(ExtractLineText(backgroundSpan));
                 if (backgroundText.Length == 0)
                 {
                     continue;
@@ -283,7 +285,7 @@ public partial class TtmlLyricParser : ILyricParser
             var syllableText = span.Value;
             if (i + 1 < nodeList.Count && nodeList[i + 1] is XText nextText)
             {
-                syllableText += nextText.Value;
+                syllableText += NormalizeInterSyllableSpace(nextText.Value);
             }
 
             syllables.Add(new LyricSyllable
@@ -319,6 +321,37 @@ public partial class TtmlLyricParser : ILyricParser
         }
 
         return string.Concat(text);
+    }
+
+    private static string NormalizeXmlTextContent(string text)
+        => WhitespaceCollapseRegex().Replace(text, " ").Trim();
+
+    // Keep one word separator between karaoke spans. Drop pure XML indentation
+    // (newlines with no space/tab before them); keep a single space when an
+    // inline space sits before a pretty-print newline (`</span> \n<span>`).
+    private static string NormalizeInterSyllableSpace(string rawText)
+    {
+        if (string.IsNullOrEmpty(rawText))
+        {
+            return string.Empty;
+        }
+
+        if (!string.IsNullOrWhiteSpace(rawText))
+        {
+            return rawText;
+        }
+
+        var newlineIndex = rawText.IndexOfAny(['\n', '\r']);
+        var inlinePrefix = newlineIndex < 0 ? rawText.AsSpan() : rawText.AsSpan(0, newlineIndex);
+        var hasSemanticInlineSpace = inlinePrefix.Contains(' ') || inlinePrefix.Contains('\t');
+        var isLayoutWhitespace = newlineIndex >= 0;
+
+        if (!isLayoutWhitespace || hasSemanticInlineSpace)
+        {
+            return " ";
+        }
+
+        return string.Empty;
     }
 
     private static IReadOnlyList<string> GetArtistIds(XElement element)
@@ -371,4 +404,7 @@ public partial class TtmlLyricParser : ILyricParser
 
     [GeneratedRegex(@"^(?:(?<h>\d{1,2}):)?(?<m>\d{1,2}):(?<s>\d{1,2})(?:\.(?<f>\d{1,7}))?$")]
     private static partial Regex TtmlTimeRegex();
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex WhitespaceCollapseRegex();
 }

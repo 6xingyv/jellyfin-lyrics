@@ -1,3 +1,4 @@
+using System.Linq;
 using MediaBrowser.Model.Lyrics;
 using MediaBrowser.Providers.Lyric;
 using Xunit;
@@ -64,5 +65,65 @@ public static class TtmlLyricParserTests
 
         Assert.Equal("你好世界", Assert.Single(parsed.Tracks[1].Lines).Text);
         Assert.Equal("Halo Waludo", Assert.Single(parsed.Tracks[2].Lines).Text);
+    }
+
+    [Fact]
+    public static void ParseTtml_CollapsesLayoutWhitespaceInSyncedLines()
+    {
+        const string Ttml = """
+            <tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+                <body><div>
+                    <p begin="00:42.723" end="00:48.909">Oh, and when your little
+                        legs rest on my shoulders</p>
+                    <p begin="02:02.567" end="02:04.112">Breathe, breathe into
+                        me</p>
+                </div></body>
+            </tt>
+            """;
+
+        var parsed = new TtmlLyricParser().ParseLyrics(new LyricFile("sample.ttml", Ttml));
+
+        Assert.NotNull(parsed);
+        var lines = parsed.Tracks[0].Lines;
+        Assert.Equal("Oh, and when your little legs rest on my shoulders", lines[0].Text);
+        Assert.Equal("Breathe, breathe into me", lines[1].Text);
+    }
+
+    [Fact]
+    public static void ParseTtml_KaraokeSyllableSpacingUsesTextNodes()
+    {
+        const string Ttml = """
+            <tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+                <body><div>
+                    <p begin="00:00.000" end="00:02.000">
+                        <span begin="00:00.000" end="00:01.000">Hello</span> <span begin="00:01.000" end="00:02.000">world</span>
+                    </p>
+                </div></body>
+            </tt>
+            """;
+
+        var parsed = new TtmlLyricParser().ParseLyrics(new LyricFile("sample.ttml", Ttml));
+
+        Assert.NotNull(parsed);
+        var syllables = Assert.Single(parsed.Tracks[0].Lines).Syllables;
+        Assert.Equal(2, syllables.Count);
+        Assert.Equal("Hello ", syllables[0].Text);
+        Assert.Equal("world", syllables[1].Text);
+    }
+
+    [Fact]
+    public static void ParseTtml_PreservesInlineSpaceBeforePrettyPrintedSpan()
+    {
+        const string Ttml = """
+            <tt xmlns="http://www.w3.org/ns/ttml"><body><div><p begin="00:00.000" end="00:01.000"><span begin="00:00.000" end="00:00.500">Get</span> 
+            <span begin="00:00.500" end="00:01.000">around</span></p></div></body></tt>
+            """;
+
+        var parsed = new TtmlLyricParser().ParseLyrics(new LyricFile("sample.ttml", Ttml));
+
+        Assert.NotNull(parsed);
+        var syllables = Assert.Single(parsed.Tracks[0].Lines).Syllables;
+        Assert.Equal("Get ", syllables[0].Text);
+        Assert.Equal("Get around", string.Concat(syllables.Select(i => i.Text)));
     }
 }
